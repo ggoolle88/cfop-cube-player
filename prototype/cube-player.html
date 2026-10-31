@@ -40,7 +40,14 @@
   .muted { color:var(--muted); font-size:13px; }
   #error { color:var(--error); font-size:13px; min-height:1em; }
   .controls { justify-content:space-between; }
-  .picker-tabs { display:flex; gap:6px; position:sticky; top:env(safe-area-inset-top, 0px); background:var(--panel); padding:6px 0; z-index:1; }
+  .picker-head { position:sticky; top:env(safe-area-inset-top, 0px); background:var(--panel); padding:8px 0 6px; z-index:1; display:flex; flex-direction:column; gap:8px; }
+  .size-switch { display:flex; background:var(--chip); border-radius:10px; padding:3px; }
+  .size-switch button { flex:1; background:none; font-weight:600; }
+  .size-switch button.on { background:var(--panel); box-shadow:0 1px 3px rgb(0 0 0 / .18); }
+  .picker-tabs { display:flex; gap:6px; }
+  .case.wide { grid-column:span 2; }
+  .case.wide svg { width:132px; height:76px; }
+  .method-note { margin:10px 0 0; }
   .picker-tabs button { flex:1; }
   .picker-tabs button.on { background:var(--accent); color:var(--on-accent); }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(84px, 1fr)); gap:8px; }
@@ -89,8 +96,11 @@
   </div>
   </main>
   <aside class="picker">
-    <div class="picker-tabs">
-      <button data-g="PLL">PLL (21)</button><button data-g="OLL">OLL (57)</button><button data-g="F2L">F2L (41)</button>
+    <div class="picker-head">
+      <div class="size-switch" id="sizeSwitch">
+        <button data-size="3">3 階　3×3</button><button data-size="2">2 階　2×2</button>
+      </div>
+      <div class="picker-tabs" id="pickerTabs"></div>
     </div>
     <div id="cases"></div>
   </aside>
@@ -140,7 +150,7 @@ function makeMove(family, amount) {
 const invertMove = (m) => makeMove(m.family, -m.amount);
 const invertAlg = (moves) => moves.slice().reverse().map(invertMove);
 
-export function parseAlg(source) {
+export function parseAlg(source, size = 3) {
   const s = source.replace(/[’′‘`]/g, "'").replace(/\/\/.*$/gm, '');
   let i = 0;
 
@@ -170,6 +180,9 @@ export function parseAlg(source) {
       }
       const m = /^([RLUDFB]w|[RLUDFBMESxyzrludfb])/.exec(s.slice(i));
       if (!m) throw new AlgParseError(`位置 ${i + 1}：無法辨識的符號 "${c}"`);
+      if (size === 2 && /^[MES]$|^[rludfb]$|w$/.test(m[1])) {
+        throw new AlgParseError(`位置 ${i + 1}：2 階沒有中間層，不能使用 ${m[1]}`);
+      }
       i += m[1].length;
       const amount = readAmount();
       if (amount % 4 !== 0) out.push(makeMove(m[1], amount));
@@ -191,9 +204,13 @@ const FACE_NORMALS = [
 const SPACING = 1.02;
 const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
 
+// size = 3 或 2：小塊座標為 -half..half（2 階為 ±0.5），外層判斷看座標正負
 class CubeModel {
-  constructor(scene) {
+  constructor(scene, size = 3) {
+    this.size = size;
+    this.half = (size - 1) / 2;
     this.root = new THREE.Group();
+    this.root.scale.setScalar(size === 2 ? 1.35 : 1);
     scene.add(this.root);
     this.cubies = [];
 
@@ -203,13 +220,14 @@ class CubeModel {
     const stickerMats = Object.fromEntries(Object.entries(COLORS).map(
       ([f, c]) => [f, new THREE.MeshStandardMaterial({ color: c, roughness: 0.35 })]));
 
-    for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
-      if (!x && !y && !z) continue;
+    const h = this.half;
+    for (let x = -h; x <= h; x++) for (let y = -h; y <= h; y++) for (let z = -h; z <= h; z++) {
+      if (Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) < h) continue;  // 看不到的內部塊
       const home = new THREE.Vector3(x, y, z);
       const obj = new THREE.Group();
       obj.add(new THREE.Mesh(bodyGeo, bodyMat));
       for (const [face, n] of FACE_NORMALS) {
-        if (home.dot(n) !== 1) continue;
+        if (home.dot(n) !== h) continue;
         const sticker = new THREE.Mesh(stickerGeo, stickerMats[face]);
         sticker.position.copy(n).multiplyScalar(0.481);
         sticker.lookAt(n.clone().multiplyScalar(2));
@@ -224,15 +242,21 @@ class CubeModel {
     for (const c of this.cubies) { c.pos.copy(c.home); c.quat.identity(); }
   }
 
+  dispose(scene) {
+    scene.remove(this.root);
+  }
+
+  // layers 以 -1 / 0 / 1 表示「負側外層／中間層／正側外層」
   inLayer(c, move) {
-    return move.layers.includes(Math.round(c.pos[move.axis]));
+    const v = c.pos[move.axis];
+    return move.layers.some((L) => (L === 0 ? Math.abs(v) < 0.01 : Math.sign(v) === L && Math.abs(Math.abs(v) - this.half) < 0.01));
   }
 
   applyMove(move) {
     const q = new THREE.Quaternion().setFromAxisAngle(AXES[move.axis], move.angle);
     for (const c of this.cubies) {
       if (!this.inLayer(c, move)) continue;
-      c.pos.applyQuaternion(q).round();
+      c.pos.applyQuaternion(q).multiplyScalar(2).round().multiplyScalar(0.5);
       c.quat.premultiply(q).normalize();
     }
   }
@@ -348,7 +372,8 @@ new ResizeObserver(() => {
   camera.updateProjectionMatrix();
 }).observe(viewport);
 
-const model = new CubeModel(scene);
+let cubeSize = 3;
+let model = new CubeModel(scene, cubeSize);
 const player = new AlgPlayer(model);
 
 // 案例選擇器：依圖片挑公式（圖示資料由模擬器計算，保證與公式一致）
@@ -362,20 +387,20 @@ const F2L_GROUPS = [
   '白色方塊在底層（同伴在上層或第二層相鄰）',
 ];
 
-// 頂視圖：9 格頂面 + 4 條側邊（各面外側正視由左至右）；colorOf 回傳 null 表示不畫
-function topViewSVG(top, sides, colorOf, arrows = []) {
-  const c = 10, g = 1, o = 4, base = o + g, edge = base + 3 * (c + g), size = edge + o;
+// 頂視圖：n×n 頂面 + 4 條側邊（各面外側正視由左至右）；colorOf 回傳 null 表示不畫
+function topViewSVG(top, sides, colorOf, arrows = [], n = 3) {
+  const c = 10, g = 1, o = 4, base = o + g, edge = base + n * (c + g), size = edge + o;
   const rects = [];
   const cell = (x, y, w, h, ch) => {
     const fill = colorOf(ch);
     if (fill) rects.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1" fill="${fill}" stroke="#222" stroke-width=".4"/>`);
   };
-  [...top].forEach((ch, i) => cell(base + (i % 3) * (c + g), base + Math.floor(i / 3) * (c + g), c, c, ch));
+  [...top].forEach((ch, i) => cell(base + (i % n) * (c + g), base + Math.floor(i / n) * (c + g), c, c, ch));
   [...sides.F].forEach((ch, i) => cell(base + i * (c + g), edge, c, o, ch));
-  [...sides.R].forEach((ch, i) => cell(edge, base + (2 - i) * (c + g), o, c, ch));
-  [...sides.B].forEach((ch, i) => cell(base + (2 - i) * (c + g), 0, c, o, ch));
+  [...sides.R].forEach((ch, i) => cell(edge, base + (n - 1 - i) * (c + g), o, c, ch));
+  [...sides.B].forEach((ch, i) => cell(base + (n - 1 - i) * (c + g), 0, c, o, ch));
   [...sides.L].forEach((ch, i) => cell(0, base + i * (c + g), o, c, ch));
-  const center = (i) => [base + (i % 3) * (c + g) + c / 2, base + Math.floor(i / 3) * (c + g) + c / 2];
+  const center = (i) => [base + (i % n) * (c + g) + c / 2, base + Math.floor(i / n) * (c + g) + c / 2];
   const lines = arrows.map(([from, to, both]) => {
     const [x1, y1] = center(from), [x2, y2] = center(to);
     return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1"
@@ -407,21 +432,47 @@ const thumbOf = {
   OLL: (c) => topViewSVG(c.top.replace(/0/g, '-'), c.sides,
     (ch) => (ch === '1' ? DIAGRAM_COLORS.U : ch === '-' ? DIAGRAM_COLORS['-'] : null)),
   F2L: (c) => isoSVG(c.iso),
+  '2x2-OLL': (c) => topViewSVG(c.top.replace(/0/g, '-'), c.sides,
+    (ch) => (ch === '1' ? DIAGRAM_COLORS.U : ch === '-' ? DIAGRAM_COLORS['-'] : null), [], 2),
+  // PBL：左為上層、右為下層（從上方透視），箭頭表示角塊要去的位置
+  '2x2-PBL': (c) => {
+    const layer = (fill, v, x) => topViewSVG(fill, v.sides, (ch) => DIAGRAM_COLORS[ch], v.arrows, 2)
+      .replace('<svg ', `<svg x="${x}" y="0" width="31" height="31" `);
+    return `<svg viewBox="0 0 70 40">${layer('UUUU', c.top, 0)}${layer('DDDD', c.bottom, 39)}
+      <text x="15.5" y="38" font-size="6" text-anchor="middle" fill="var(--muted)">上層</text>
+      <text x="54.5" y="38" font-size="6" text-anchor="middle" fill="var(--muted)">下層</text></svg>`;
+  },
 };
+
+// 2 階（Ortega 解法）案例，同樣由模擬器驗證並計算圖示
+Object.assign(CASES, {"2x2-OLL":[{"name":"Sune","alg":"R U R' U R U2 R'","top":"0010","sides":{"F":"01","R":"01","B":"01","L":"00"}},{"name":"Antisune","alg":"R U2 R' U' R U' R'","top":"0100","sides":{"F":"10","R":"10","B":"00","L":"10"}},{"name":"H","alg":"R2 U2 R U2 R2","top":"0000","sides":{"F":"11","R":"00","B":"11","L":"00"}},{"name":"Pi","alg":"F R U R' U' R U R' U' F'","top":"0000","sides":{"F":"01","R":"00","B":"10","L":"11"}},{"name":"U","alg":"F R U R' U' F'","top":"0101","sides":{"F":"00","R":"00","B":"00","L":"11"}},{"name":"T","alg":"R U R' U' R' F R F'","top":"0101","sides":{"F":"10","R":"00","B":"01","L":"00"}},{"name":"L","alg":"F R' F' R U R U' R'","top":"1001","sides":{"F":"10","R":"01","B":"00","L":"00"}}],"2x2-PBL":[{"name":"上層相鄰","alg":"R U R' F' R U R' U' R' F R2 U' R' U'","top":{"sides":{"F":"FR","R":"BF","B":"RB","L":"LL"},"arrows":[[3,1,1]]},"bottom":{"sides":{"F":"FF","R":"RR","B":"BB","L":"LL"},"arrows":[]}},{"name":"上層對角","alg":"R U' R' U' F2 U' R U R' D R2 U D'","top":{"sides":{"F":"FB","R":"LR","B":"BF","L":"RL"},"arrows":[[3,0,1]]},"bottom":{"sides":{"F":"FF","R":"RR","B":"BB","L":"LL"},"arrows":[]}},{"name":"下層相鄰","alg":"R2 F2 R' U' F U2 F' U R' U2 D","top":{"sides":{"F":"FF","R":"RR","B":"BB","L":"LL"},"arrows":[]},"bottom":{"sides":{"F":"LF","R":"RR","B":"BL","L":"FB"},"arrows":[[2,0,1]]}},{"name":"下層對角","alg":"F2 U' R U R F2 R U' R' U R'","top":{"sides":{"F":"FF","R":"RR","B":"BB","L":"LL"},"arrows":[]},"bottom":{"sides":{"F":"BF","R":"RL","B":"FB","L":"LR"},"arrows":[[1,2,1]]}},{"name":"雙層相鄰","alg":"R2 U' B2 U2 R2 U' R2","top":{"sides":{"F":"FF","R":"RB","B":"LR","L":"BL"},"arrows":[[1,0,1]]},"bottom":{"sides":{"F":"FF","R":"RB","B":"LR","L":"BL"},"arrows":[[1,0,1]]}},{"name":"雙層對角","alg":"R2 F2 R2","top":{"sides":{"F":"BF","R":"RL","B":"FB","L":"LR"},"arrows":[[1,2,1]]},"bottom":{"sides":{"F":"BF","R":"RL","B":"FB","L":"LR"},"arrows":[[1,2,1]]}},{"name":"上相鄰・下對角","alg":"R U' R F2 R' U R'","top":{"sides":{"F":"FF","R":"RB","B":"LR","L":"BL"},"arrows":[[1,0,1]]},"bottom":{"sides":{"F":"BF","R":"RL","B":"FB","L":"LR"},"arrows":[[1,2,1]]}},{"name":"上對角・下相鄰","alg":"R U' F U2 F' U R'","top":{"sides":{"F":"FB","R":"LR","B":"BF","L":"RL"},"arrows":[[3,0,1]]},"bottom":{"sides":{"F":"RL","R":"FR","B":"BB","L":"LF"},"arrows":[[3,2,1]]}}]});
+const GROUPS = {
+  3: [['PLL', 'PLL (21)'], ['OLL', 'OLL (57)'], ['F2L', 'F2L (41)']],
+  2: [['2x2-OLL', 'OLL (7)'], ['2x2-PBL', 'PBL (8)']],
+};
+const DEFAULT_CASE = { 3: ['PLL', 'T-Perm'], 2: ['2x2-OLL', 'Sune'] };
+const sizeOf = (group) => (group.startsWith('2x2') ? 2 : 3);
+const ORTEGA_NOTE = `<p class="muted method-note">2 階 Ortega 解法：① 先做出白色面（側邊顏色不用對）
+  → ② OLL 讓頂面全黃 → ③ PBL 一次排好上下兩層。白色面做好後，把白色朝下再開始 OLL。</p>`;
 
 const picker = document.getElementById('cases');
 let activeCard = null;
 
 function cardHTML(group, c, i) {
-  return `<button class="case" data-group="${group}" data-i="${i}" title="${c.alg}">
+  const wide = group === '2x2-PBL' ? ' wide' : '';
+  return `<button class="case${wide}" data-group="${group}" data-i="${i}" title="${c.alg}">
     ${thumbOf[group](c)}<span>${c.name}</span>${c.white ? `<small>${c.white}</small>` : ''}</button>`;
 }
 
 function showGroup(group) {
-  document.querySelectorAll('.picker-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.g === group));
+  const size = sizeOf(group);
+  document.querySelectorAll('#sizeSwitch button').forEach((b) => b.classList.toggle('on', +b.dataset.size === size));
+  document.getElementById('pickerTabs').innerHTML = GROUPS[size].map(([g, label]) =>
+    `<button data-g="${g}" class="${g === group ? 'on' : ''}">${label}</button>`).join('');
   const list = CASES[group].map((c, i) => [c, i]);
   if (group !== 'F2L') {
-    picker.innerHTML = `<div class="grid">${list.map(([c, i]) => cardHTML(group, c, i)).join('')}</div>`;
+    picker.innerHTML = (size === 2 ? ORTEGA_NOTE : '') +
+      `<div class="grid">${list.map(([c, i]) => cardHTML(group, c, i)).join('')}</div>`;
   } else {
     const order = { '白朝上': 0, '白朝前': 1, '白朝右': 2, '白朝下': 3 };
     picker.innerHTML = F2L_GROUPS.map((title, gi) => `<h3>${title}</h3><div class="grid">${list
@@ -440,23 +491,44 @@ function markActive() {
     b.classList.toggle('on', !!activeCard && b.dataset.group === activeCard[0] && +b.dataset.i === activeCard[1]));
 }
 
-document.querySelector('.picker-tabs').addEventListener('click', (e) => {
+// 切換 3 階／2 階：換掉 3D 模型並載入該階的預設案例
+function setSize(size) {
+  if (size !== cubeSize) {
+    model.dispose(scene);
+    model = new CubeModel(scene, size);
+    player.model = model;
+    cubeSize = size;
+  }
+}
+
+function selectCase(group, i) {
+  setSize(sizeOf(group));
+  activeCard = [group, i];
+  ui.alg.value = CASES[group][i].alg;
+  loadFromInput();
+}
+
+document.getElementById('sizeSwitch').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || +b.dataset.size === cubeSize) return;
+  const [group, name] = DEFAULT_CASE[+b.dataset.size];
+  selectCase(group, CASES[group].findIndex((c) => c.name === name));
+  showGroup(group);
+});
+document.getElementById('pickerTabs').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b) showGroup(b.dataset.g);
 });
 picker.addEventListener('click', (e) => {
   const b = e.target.closest('.case');
   if (!b) return;
-  activeCard = [b.dataset.group, +b.dataset.i];
-  ui.alg.value = CASES[activeCard[0]][activeCard[1]].alg;
-  loadFromInput();
+  selectCase(b.dataset.group, +b.dataset.i);
   markActive();
   // 窄螢幕（上下排列）才需要捲回方塊；寬螢幕兩欄並排不捲動
   if (!matchMedia('(min-width: 760px)').matches) {
     document.getElementById('viewport').scrollIntoView({ behavior: 'smooth' });
   }
 });
-activeCard = ['PLL', CASES.PLL.findIndex((c) => c.name === 'T-Perm')];
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -467,7 +539,7 @@ const ui = {
 
 function loadFromInput() {
   try {
-    const moves = parseAlg(ui.alg.value);
+    const moves = parseAlg(ui.alg.value, cubeSize);
     const setup = [
       ...(ui.yellowTop.checked ? parseAlg('z2') : []),
       ...(ui.caseMode.checked ? invertAlg(moves) : []),
@@ -527,8 +599,11 @@ renderer.setAnimationLoop((now) => {
   renderer.render(scene, camera);
 });
 
-loadFromInput();
-showGroup(location.hash.slice(1) in CASES ? location.hash.slice(1) : 'PLL');
+// 網址 #PLL、#OLL、#F2L、#2x2-OLL、#2x2-PBL 可直接開在該分頁
+const startGroup = location.hash.slice(1) in CASES ? location.hash.slice(1) : 'PLL';
+const [defGroup, defName] = DEFAULT_CASE[sizeOf(startGroup)];
+selectCase(defGroup, CASES[defGroup].findIndex((c) => c.name === defName));
+showGroup(startGroup);
 </script>
 </body>
 </html>

@@ -6,7 +6,7 @@
 
 | 路徑 | 內容 |
 |---|---|
-| [prototype/cube-player.html](prototype/cube-player.html) | 自製 Three.js 引擎：3x3x3 模型、記號解析器、動畫引擎、播放／暫停／拖曳／速度控制，並內建 PLL 21、OLL 57、F2L 41 案例圖選擇器（公式與圖示皆以模擬器驗證）。直接用瀏覽器開啟即可 |
+| [prototype/cube-player.html](prototype/cube-player.html) | 自製 Three.js 引擎：3x3x3 模型、記號解析器、動畫引擎、播放／暫停／拖曳／速度控制，並內建 PLL 21、OLL 57、F2L 41 案例圖選擇器；可切換 2 階（Ortega 解法：OLL 7、PBL 8）。公式與圖示皆以模擬器驗證，直接用瀏覽器開啟即可 |
 | [prototype/formula-detail.html](prototype/formula-detail.html) | 以 cubing.js `<twisty-player>` 製作的「公式詳情頁」原型 |
 | [data/schema/cfop-case.schema.json](data/schema/cfop-case.schema.json) | CFOP 案例 JSON Schema |
 | [data/algorithms/samples.json](data/algorithms/samples.json) | 範例資料：T-Perm、Sune (OLL 27)、F2L 1 |
