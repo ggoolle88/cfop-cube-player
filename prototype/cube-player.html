@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CFOP Cube Player</title>
+<style>
+  /* 版面：寬螢幕左播放器／右案例圖；窄螢幕上下排列 */
+  :root { --bg:#f4f5f7; --panel:#fff; --text:#1d2129; --muted:#6b7280; --accent:#2563eb; --on-accent:#fff; --chip:#eef0f3; --done:#c7d2fe; --gray:#c4c8cf; --error:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#111318; --panel:#1b1e25; --text:#e6e8ec; --muted:#9aa1ad; --accent:#60a5fa; --on-accent:#0b1220; --chip:#272b34; --done:#334a7a; --gray:#4b5563; --error:#f87171; color-scheme:dark; }
+  }
+  :root[data-theme="dark"] { --bg:#111318; --panel:#1b1e25; --text:#e6e8ec; --muted:#9aa1ad; --accent:#60a5fa; --on-accent:#0b1220; --chip:#272b34; --done:#334a7a; --gray:#4b5563; --error:#f87171; color-scheme:dark; }
+  html, body { height:100%; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, -apple-system, "Noto Sans TC", sans-serif; }
+  #app { max-width:520px; margin:0 auto; display:flex; flex-direction:column; min-height:100%; }
+  .player { display:flex; flex-direction:column; }
+  .picker { background:var(--panel); padding:0 16px 16px; }
+  #viewport { aspect-ratio:1/1; width:100%; touch-action:none; }
+  /* 寬螢幕：左側播放器、右側案例圖各自捲動，選圖不必上下滑 */
+  @media (min-width: 760px) {
+    #app { max-width:1280px; display:grid; grid-template-columns:minmax(340px, 480px) 1fr; height:100%; min-height:0; gap:16px; padding:16px; }
+    .player { overflow-y:auto; min-height:0; }
+    .player .panel { border-radius:16px; }
+    #viewport { max-height:52vh; }
+    .picker { overflow-y:auto; min-height:0; border-radius:16px; }
+  }
+  .panel { background:var(--panel); border-radius:16px 16px 0 0; padding:16px; display:flex; flex-direction:column; gap:12px; flex:1; }
+  .row { display:flex; gap:8px; align-items:center; }
+  input[type=text] { flex:1; min-width:0; padding:8px 10px; border-radius:8px; border:1px solid var(--chip); background:var(--bg); color:var(--text); font-family:ui-monospace, monospace; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button, select { padding:8px 12px; border-radius:8px; border:0; background:var(--chip); color:var(--text); font-size:15px; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--on-accent); min-width:96px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .moves { display:flex; flex-wrap:wrap; gap:6px; font-family:ui-monospace, monospace; }
+  .moves span { padding:3px 8px; border-radius:6px; background:var(--chip); cursor:pointer; }
+  .moves span.done { background:var(--done); }
+  .moves span.active { background:var(--accent); color:var(--on-accent); }
+  .muted { color:var(--muted); font-size:13px; }
+  #error { color:var(--error); font-size:13px; min-height:1em; }
+  .controls { justify-content:space-between; }
+  .picker-tabs { display:flex; gap:6px; position:sticky; top:env(safe-area-inset-top, 0px); background:var(--panel); padding:6px 0; z-index:1; }
+  .picker-tabs button { flex:1; }
+  .picker-tabs button.on { background:var(--accent); color:var(--on-accent); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(84px, 1fr)); gap:8px; }
+  .case { display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 4px; background:var(--bg); border:2px solid transparent; border-radius:10px; font-size:12px; }
+  .case.on { border-color:var(--accent); }
+  .case svg { width:64px; height:64px; }
+  .case small { color:var(--muted); font-size:11px; }
+  #cases h3 { font-size:14px; margin:16px 0 8px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <main class="player">
+  <div id="viewport"></div>
+  <div class="panel">
+    <div class="row">
+      <input type="text" id="alg" value="R U R' U' R' F R2 U' R' U' R U R' F'" spellcheck="false">
+      <button id="load">載入</button>
+    </div>
+    <div class="row muted">
+      <label><input type="checkbox" id="caseMode" checked> 從案例狀態開始（播放結束＝還原）</label>
+      <label><input type="checkbox" id="yellowTop" checked> 黃色朝上</label>
+    </div>
+    <div id="moves" class="moves"></div>
+    <input type="range" id="scrub" min="0" max="1" step="0.001" value="0">
+    <div class="row controls">
+      <button id="reset" title="回到開頭">⏮</button>
+      <button id="prev" title="上一步">◀</button>
+      <button id="play" class="primary">▶ 播放</button>
+      <button id="next" title="下一步">▶</button>
+      <select id="speed" title="速度">
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+    </div>
+    <div class="row muted"><span id="counter"></span></div>
+    <div id="error"></div>
+  </div>
+  </main>
+  <aside class="picker">
+    <div class="picker-tabs">
+      <button data-g="PLL">PLL (21)</button><button data-g="OLL">OLL (57)</button><button data-g="F2L">F2L (41)</button>
+    </div>
+    <div id="cases"></div>
+  </aside>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// =====================================================================
+// 1. Parser：標準 WCA / Singmaster 記號 → Move[]
+//    支援：R U F L D B、' 與 2、寬層 r / Rw、中層 M E S、整體轉 x y z、
+//         括號重複 (R U R' U')2、反向群組 (R U)'、// 註解
+// =====================================================================
+const PI_2 = Math.PI / 2;
+
+// dir = 該面「順時針 1/4 圈」時繞 +axis 的旋轉方向（右手座標系）
+const FACE_DEFS = {
+  R: { axis: 'x', layers: [1],        dir: -1 },
+  L: { axis: 'x', layers: [-1],       dir:  1 },
+  U: { axis: 'y', layers: [1],        dir: -1 },
+  D: { axis: 'y', layers: [-1],       dir:  1 },
+  F: { axis: 'z', layers: [1],        dir: -1 },
+  B: { axis: 'z', layers: [-1],       dir:  1 },
+  M: { axis: 'x', layers: [0],        dir:  1 },  // 同 L 方向
+  E: { axis: 'y', layers: [0],        dir:  1 },  // 同 D 方向
+  S: { axis: 'z', layers: [0],        dir: -1 },  // 同 F 方向
+  x: { axis: 'x', layers: [-1, 0, 1], dir: -1 },  // 同 R 方向
+  y: { axis: 'y', layers: [-1, 0, 1], dir: -1 },  // 同 U 方向
+  z: { axis: 'z', layers: [-1, 0, 1], dir: -1 },  // 同 F 方向
+};
+
+class AlgParseError extends Error {}
+
+function makeMove(family, amount) {
+  const wide = family.length === 2 || /^[rludfb]$/.test(family);
+  const base = FACE_DEFS[wide ? family[0].toUpperCase() : family];
+  const layers = wide ? [base.layers[0], 0] : base.layers;
+  const abs = Math.abs(amount);
+  return {
+    family, amount, axis: base.axis, layers,
+    angle: base.dir * amount * PI_2,
+    notation: family + (abs !== 1 ? abs : '') + (amount < 0 ? "'" : ''),
+  };
+}
+
+const invertMove = (m) => makeMove(m.family, -m.amount);
+const invertAlg = (moves) => moves.slice().reverse().map(invertMove);
+
+export function parseAlg(source) {
+  const s = source.replace(/[’′‘`]/g, "'").replace(/\/\/.*$/gm, '');
+  let i = 0;
+
+  const readAmount = () => {
+    const m = /^(\d*)('?)/.exec(s.slice(i));
+    i += m[0].length;
+    const n = m[1] ? parseInt(m[1], 10) : 1;
+    return m[2] ? -n : n;
+  };
+
+  const parseSeq = (inGroup) => {
+    const out = [];
+    for (;;) {
+      while (i < s.length && /\s/.test(s[i])) i++;
+      if (i >= s.length) {
+        if (inGroup) throw new AlgParseError('缺少右括號 )');
+        return out;
+      }
+      const c = s[i];
+      if (c === '(') { i++; out.push(...parseSeq(true)); continue; }
+      if (c === ')') {
+        if (!inGroup) throw new AlgParseError(`位置 ${i + 1}：多餘的 )`);
+        i++;
+        const times = readAmount();
+        const unit = times < 0 ? invertAlg(out) : out;
+        return Array.from({ length: Math.abs(times) }, () => unit).flat();
+      }
+      const m = /^([RLUDFB]w|[RLUDFBMESxyzrludfb])/.exec(s.slice(i));
+      if (!m) throw new AlgParseError(`位置 ${i + 1}：無法辨識的符號 "${c}"`);
+      i += m[1].length;
+      const amount = readAmount();
+      if (amount % 4 !== 0) out.push(makeMove(m[1], amount));
+    }
+  };
+  return parseSeq(false);
+}
+
+// =====================================================================
+// 2. 3x3x3 模型：每個小塊記錄「離散狀態」(整數座標 + 四元數)，
+//    渲染時再疊加正在進行中那一步的部分旋轉 → 任意進度都可直接重算
+// =====================================================================
+const COLORS = { U: 0xffffff, D: 0xffd500, F: 0x009e60, B: 0x0051ba, R: 0xc41e3a, L: 0xff5800 };
+const FACE_NORMALS = [
+  ['R', new THREE.Vector3(1, 0, 0)], ['L', new THREE.Vector3(-1, 0, 0)],
+  ['U', new THREE.Vector3(0, 1, 0)], ['D', new THREE.Vector3(0, -1, 0)],
+  ['F', new THREE.Vector3(0, 0, 1)], ['B', new THREE.Vector3(0, 0, -1)],
+];
+const SPACING = 1.02;
+const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+
+class CubeModel {
+  constructor(scene) {
+    this.root = new THREE.Group();
+    scene.add(this.root);
+    this.cubies = [];
+
+    const bodyGeo = new THREE.BoxGeometry(0.96, 0.96, 0.96);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.6 });
+    const stickerGeo = new THREE.PlaneGeometry(0.82, 0.82);
+    const stickerMats = Object.fromEntries(Object.entries(COLORS).map(
+      ([f, c]) => [f, new THREE.MeshStandardMaterial({ color: c, roughness: 0.35 })]));
+
+    for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+      if (!x && !y && !z) continue;
+      const home = new THREE.Vector3(x, y, z);
+      const obj = new THREE.Group();
+      obj.add(new THREE.Mesh(bodyGeo, bodyMat));
+      for (const [face, n] of FACE_NORMALS) {
+        if (home.dot(n) !== 1) continue;
+        const sticker = new THREE.Mesh(stickerGeo, stickerMats[face]);
+        sticker.position.copy(n).multiplyScalar(0.481);
+        sticker.lookAt(n.clone().multiplyScalar(2));
+        obj.add(sticker);
+      }
+      this.root.add(obj);
+      this.cubies.push({ obj, home, pos: home.clone(), quat: new THREE.Quaternion() });
+    }
+  }
+
+  reset() {
+    for (const c of this.cubies) { c.pos.copy(c.home); c.quat.identity(); }
+  }
+
+  inLayer(c, move) {
+    return move.layers.includes(Math.round(c.pos[move.axis]));
+  }
+
+  applyMove(move) {
+    const q = new THREE.Quaternion().setFromAxisAngle(AXES[move.axis], move.angle);
+    for (const c of this.cubies) {
+      if (!this.inLayer(c, move)) continue;
+      c.pos.applyQuaternion(q).round();
+      c.quat.premultiply(q).normalize();
+    }
+  }
+
+  // activeMove 進行到 t (0..1) 的畫面
+  render(activeMove, t) {
+    const q = activeMove
+      ? new THREE.Quaternion().setFromAxisAngle(AXES[activeMove.axis], activeMove.angle * t)
+      : null;
+    for (const c of this.cubies) {
+      c.obj.position.copy(c.pos);
+      c.obj.quaternion.copy(c.quat);
+      if (q && this.inLayer(c, activeMove)) {
+        c.obj.position.applyQuaternion(q);
+        c.obj.quaternion.premultiply(q);
+      }
+      c.obj.position.multiplyScalar(SPACING);
+    }
+  }
+}
+
+// =====================================================================
+// 3. Animation Engine：以連續的 position (0..N，單位＝步) 描述時間軸
+//    播放 / 暫停 / 單步 / 拖曳都只是改變 position 或 target
+// =====================================================================
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+
+class AlgPlayer extends EventTarget {
+  constructor(model) {
+    super();
+    this.model = model;
+    this.moves = [];
+    this.setup = [];
+    this.position = 0;   // 目前進度（可為小數）
+    this.target = null;  // 動畫要前往的進度；null = 暫停
+    this.baked = 0;      // 已寫入 model 離散狀態的步數
+    this.speed = 1;
+    this.msPerMove = 420;
+  }
+
+  get length() { return this.moves.length; }
+  get playing() { return this.target !== null; }
+
+  load(moves, setup = []) {
+    this.moves = moves;
+    this.setup = setup;
+    this.target = null;
+    this.position = 0;
+    this.rebuild();
+    this.sync();
+  }
+
+  rebuild() {
+    this.model.reset();
+    this.setup.forEach((m) => this.model.applyMove(m));
+    this.baked = 0;
+  }
+
+  sync() {
+    const k = Math.min(Math.floor(this.position), this.length);
+    if (k < this.baked) this.rebuild();          // 倒退：從頭重算，避免累積浮點誤差
+    while (this.baked < k) this.model.applyMove(this.moves[this.baked++]);
+    const frac = this.position - k;
+    this.model.render(frac > 0 ? this.moves[k] : null, easeInOutCubic(frac));
+    this.dispatchEvent(new Event('change'));
+  }
+
+  seek(p) { this.target = null; this.position = THREE.MathUtils.clamp(p, 0, this.length); this.sync(); }
+  play() { if (this.position >= this.length) this.seek(0); this.target = this.length; this.sync(); }
+  pause() { this.target = null; this.sync(); }
+  toggle() { this.playing ? this.pause() : this.play(); }
+  stepForward() { this.target = Math.min(Math.floor(this.position + 1e-6) + 1, this.length); }
+  stepBack() { this.target = Math.max(Math.ceil(this.position - 1e-6) - 1, 0); }
+
+  update(dtMs) {
+    if (this.target === null) return;
+    const step = (dtMs * this.speed) / this.msPerMove;
+    const d = this.target - this.position;
+    if (Math.abs(d) <= step) { this.position = this.target; this.target = null; }
+    else this.position += Math.sign(d) * step;
+    this.sync();
+  }
+}
+
+// =====================================================================
+// 4. 場景 + UI 綁定
+// =====================================================================
+const viewport = document.getElementById('viewport');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+viewport.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+camera.position.set(5.2, 4.6, 7.2);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x666677, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(4, 8, 6);
+scene.add(sun);
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enablePan = false;
+orbit.enableDamping = true;
+orbit.minDistance = 6;
+orbit.maxDistance = 16;
+
+new ResizeObserver(() => {
+  const { clientWidth: w, clientHeight: h } = viewport;
+  renderer.setSize(w, h, false);
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}).observe(viewport);
+
+const model = new CubeModel(scene);
+const player = new AlgPlayer(model);
+
+// 案例選擇器：依圖片挑公式（圖示資料由模擬器計算，保證與公式一致）
+// 面代號是「黃色朝上」握法下的面；配色只在 DIAGRAM_COLORS 這一處
+const CASES = {"PLL":[{"name":"Aa-Perm","alg":"x R' U R' D2 R U' R' D2 R2 x'","sides":{"F":"FFB","R":"LRF","B":"RBR","L":"BLL"},"arrows":[[8,0,0],[0,2,0],[2,8,0]]},{"name":"Ab-Perm","alg":"x R2 D2 R U R' D2 R U' R x'","sides":{"F":"FFR","R":"BRB","B":"LBF","L":"RLL"},"arrows":[[2,0,0],[8,2,0],[0,8,0]]},{"name":"E-Perm","alg":"x' R U' R' D R U R' D' R U R' D R U' R' D' x","sides":{"F":"LFR","R":"BRF","B":"RBL","L":"FLB"},"arrows":[[6,0,1],[8,2,1]]},{"name":"F-Perm","alg":"R' U' F' R U R' U' R' F R2 U' R' U' R U R' U R","sides":{"F":"FBR","R":"BRF","B":"RFB","L":"LLL"},"arrows":[[7,1,1],[8,2,1]]},{"name":"Ga-Perm","alg":"R2 U R' U R' U' R U' R2 U' D R' U R D'","sides":{"F":"FRR","R":"BLF","B":"RFB","L":"LBL"},"arrows":[[5,3,0],[3,1,0],[1,7,0],[8,2,1],[7,5,0]]},{"name":"Gb-Perm","alg":"R' U' R U D' R2 U R' U R U' R U' R2 D","sides":{"F":"FBR","R":"BFF","B":"RLB","L":"LRL"},"arrows":[[1,3,0],[7,1,0],[5,7,0],[8,2,1],[3,5,0]]},{"name":"Gc-Perm","alg":"R2 U' R U' R U R' U R2 U D' R U' R' D","sides":{"F":"FBR","R":"BLF","B":"RRB","L":"LFL"},"arrows":[[5,3,0],[7,1,0],[3,7,0],[8,2,1],[1,5,0]]},{"name":"Gd-Perm","alg":"R U R' U' D R2 U' R U' R' U R' U R2 D'","sides":{"F":"FLR","R":"BBF","B":"RFB","L":"LRL"},"arrows":[[7,3,0],[5,1,0],[1,7,0],[8,2,1],[3,5,0]]},{"name":"H-Perm","alg":"M2 U M2 U2 M2 U M2","sides":{"F":"FBF","R":"RLR","B":"BFB","L":"LRL"},"arrows":[[5,3,1],[7,1,1]]},{"name":"Ja-Perm","alg":"x R2 F R F' R U2 r' U r U2 x'","sides":{"F":"FFR","R":"BBF","B":"RRB","L":"LLL"},"arrows":[[5,1,1],[8,2,1]]},{"name":"Jb-Perm","alg":"R U R' F' R U R' U' R' F R2 U' R' U'","sides":{"F":"FRR","R":"BFF","B":"RBB","L":"LLL"},"arrows":[[5,7,1],[8,2,1]]},{"name":"Na-Perm","alg":"R U R' U R U R' F' R U R' U' R' F R2 U' R' U2 R U' R'","sides":{"F":"BFF","R":"RLL","B":"FBB","L":"LRR"},"arrows":[[5,3,1],[2,6,1]]},{"name":"Nb-Perm","alg":"R' U R U' R' F' U' F R U R' F R' F' R U' R","sides":{"F":"FFB","R":"LLR","B":"BBF","L":"RRL"},"arrows":[[8,0,1],[5,3,1]]},{"name":"Ra-Perm","alg":"R U' R' U' R U R D R' U' R D' R' U2 R' U'","sides":{"F":"FFR","R":"BRF","B":"RLB","L":"LBL"},"arrows":[[1,3,1],[8,2,1]]},{"name":"Rb-Perm","alg":"R2 F R U R U' R' F' R U2 R' U2 R U","sides":{"F":"FLR","R":"BRF","B":"RBB","L":"LFL"},"arrows":[[7,3,1],[8,2,1]]},{"name":"T-Perm","alg":"R U R' U' R' F R2 U' R' U' R U R' F'","sides":{"F":"FFR","R":"BLF","B":"RBB","L":"LRL"},"arrows":[[5,3,1],[8,2,1]]},{"name":"Ua-Perm","alg":"M2 U M U2 M' U M2","sides":{"F":"FRF","R":"RLR","B":"BBB","L":"LFL"},"arrows":[[5,3,0],[3,7,0],[7,5,0]]},{"name":"Ub-Perm","alg":"M2 U' M U2 M' U' M2","sides":{"F":"FLF","R":"RFR","B":"BBB","L":"LRL"},"arrows":[[7,3,0],[5,7,0],[3,5,0]]},{"name":"V-Perm","alg":"R' U R' U' B' R' B2 U' B' U B' R B R","sides":{"F":"FFB","R":"LBR","B":"BRF","L":"RLL"},"arrows":[[8,0,1],[5,1,1]]},{"name":"Y-Perm","alg":"F R U' R' U' R U R' F' R U R' U' R' F R F'","sides":{"F":"FFB","R":"LRR","B":"BLF","L":"RBL"},"arrows":[[8,0,1],[1,3,1]]},{"name":"Z-Perm","alg":"M' U M2 U M2 U M' U2 M2 U'","sides":{"F":"FLF","R":"RBR","B":"BRB","L":"LFL"},"arrows":[[7,3,1],[5,1,1]]}],"OLL":[{"name":"OLL 1","alg":"R U2 R2 F R F' U2 R' F R F'","top":"000010000","sides":{"F":"010","R":"111","B":"010","L":"111"}},{"name":"OLL 2","alg":"F R U R' U' F' f R U R' U' f'","top":"000010000","sides":{"F":"011","R":"010","B":"110","L":"111"}},{"name":"OLL 3","alg":"f R U R' U' f' U' F R U R' U' F'","top":"000010001","sides":{"F":"010","R":"011","B":"011","L":"011"}},{"name":"OLL 4","alg":"f R U R' U' f' U F R U R' U' F'","top":"001010000","sides":{"F":"110","R":"110","B":"010","L":"110"}},{"name":"OLL 5","alg":"r' U2 R U R' U r","top":"000011011","sides":{"F":"000","R":"001","B":"011","L":"011"}},{"name":"OLL 6","alg":"r U2 R' U' R U' r'","top":"011011000","sides":{"F":"110","R":"100","B":"000","L":"110"}},{"name":"OLL 7","alg":"r U R' U R U2 r'","top":"010110100","sides":{"F":"011","R":"011","B":"001","L":"000"}},{"name":"OLL 8","alg":"l' U' L U' L' U2 l","top":"010011001","sides":{"F":"110","R":"000","B":"100","L":"110"}},{"name":"OLL 9","alg":"R U R' U' R' F R2 U R' U' F'","top":"010110001","sides":{"F":"110","R":"010","B":"100","L":"100"}},{"name":"OLL 10","alg":"R U R' U R' F R F' R U2 R'","top":"001110010","sides":{"F":"001","R":"010","B":"011","L":"001"}},{"name":"OLL 11","alg":"r U R' U R' F R F' R U2 r'","top":"011110000","sides":{"F":"011","R":"010","B":"001","L":"001"}},{"name":"OLL 12","alg":"M' R' U' R U' R' U2 R U' R r'","top":"110011000","sides":{"F":"110","R":"100","B":"100","L":"010"}},{"name":"OLL 13","alg":"F U R U' R2 F' R U R U' R'","top":"000111100","sides":{"F":"011","R":"001","B":"011","L":"000"}},{"name":"OLL 14","alg":"R' F R U R' F' R F U' F'","top":"000111001","sides":{"F":"110","R":"000","B":"110","L":"100"}},{"name":"OLL 15","alg":"r' U' r R' U' R U r' U r","top":"000111001","sides":{"F":"010","R":"001","B":"011","L":"001"}},{"name":"OLL 16","alg":"r U r' R U R' U' r U' r'","top":"001111000","sides":{"F":"110","R":"100","B":"010","L":"100"}},{"name":"OLL 17","alg":"R U R' U R' F R F' U2 R' F R F'","top":"100010001","sides":{"F":"010","R":"010","B":"110","L":"011"}},{"name":"OLL 18","alg":"r U R' U R U2 r2 U' R U' R' U2 r","top":"101010000","sides":{"F":"111","R":"010","B":"010","L":"010"}},{"name":"OLL 19","alg":"M U R U R' U' M' R' F R F'","top":"101010000","sides":{"F":"010","R":"110","B":"010","L":"011"}},{"name":"OLL 20","alg":"r U R' U' M2 U R U' R' U' M'","top":"101010101","sides":{"F":"010","R":"010","B":"010","L":"010"}},{"name":"OLL 21","alg":"R U2 R' U' R U R' U' R U' R'","top":"010111010","sides":{"F":"101","R":"000","B":"101","L":"000"}},{"name":"OLL 22","alg":"R U2 R2 U' R2 U' R2 U2 R","top":"010111010","sides":{"F":"001","R":"000","B":"100","L":"101"}},{"name":"OLL 23","alg":"R2 D' R U2 R' D R U2 R","top":"010111111","sides":{"F":"000","R":"000","B":"101","L":"000"}},{"name":"OLL 24","alg":"r U R' U' r' F R F'","top":"011111011","sides":{"F":"100","R":"000","B":"001","L":"000"}},{"name":"OLL 25","alg":"F' r U R' U' r' F R","top":"011111110","sides":{"F":"001","R":"000","B":"000","L":"100"}},{"name":"OLL 26","alg":"R U2 R' U' R U' R'","top":"011111010","sides":{"F":"100","R":"100","B":"000","L":"100"}},{"name":"OLL 27","alg":"R U R' U R U2 R'","top":"010111110","sides":{"F":"001","R":"001","B":"001","L":"000"}},{"name":"OLL 28","alg":"r U R' U' r' R U R U' R'","top":"111110101","sides":{"F":"010","R":"010","B":"000","L":"000"}},{"name":"OLL 29","alg":"R U R' U' R U' R' F' U' F R U R'","top":"011110001","sides":{"F":"110","R":"010","B":"001","L":"000"}},{"name":"OLL 30","alg":"F R' F R2 U' R' U' R U R' F2","top":"010110101","sides":{"F":"010","R":"011","B":"000","L":"100"}},{"name":"OLL 31","alg":"R' U' F U R U' R' F' R","top":"011011001","sides":{"F":"110","R":"000","B":"001","L":"010"}},{"name":"OLL 32","alg":"L U F' U' L' U L F L'","top":"110110100","sides":{"F":"011","R":"010","B":"100","L":"000"}},{"name":"OLL 33","alg":"R U R' U' R' F R F'","top":"001111001","sides":{"F":"110","R":"000","B":"011","L":"000"}},{"name":"OLL 34","alg":"R U R2 U' R' F R U R U' F'","top":"000111101","sides":{"F":"010","R":"001","B":"010","L":"100"}},{"name":"OLL 35","alg":"R U2 R2 F R F' R U2 R'","top":"100011011","sides":{"F":"100","R":"001","B":"010","L":"010"}},{"name":"OLL 36","alg":"L' U' L U' L' U L U L F' L' F","top":"110011001","sides":{"F":"010","R":"000","B":"100","L":"011"}},{"name":"OLL 37","alg":"F R' F' R U R U' R'","top":"110110001","sides":{"F":"110","R":"011","B":"000","L":"000"}},{"name":"OLL 38","alg":"R U R' U R U' R' U' R' F R F'","top":"011110100","sides":{"F":"010","R":"110","B":"001","L":"000"}},{"name":"OLL 39","alg":"L F' L' U' L U F U' L'","top":"001111100","sides":{"F":"010","R":"100","B":"011","L":"000"}},{"name":"OLL 40","alg":"R' F R U R' U' F' U R","top":"100111001","sides":{"F":"010","R":"000","B":"110","L":"001"}},{"name":"OLL 41","alg":"R U R' U R U2 R' F R U R' U' F'","top":"010110101","sides":{"F":"010","R":"010","B":"101","L":"000"}},{"name":"OLL 42","alg":"R' U' R U' R' U2 R F R U R' U' F'","top":"101110010","sides":{"F":"101","R":"010","B":"010","L":"000"}},{"name":"OLL 43","alg":"F' U' L' U L F","top":"011011001","sides":{"F":"010","R":"000","B":"000","L":"111"}},{"name":"OLL 44","alg":"F U R U' R' F'","top":"110110100","sides":{"F":"010","R":"111","B":"000","L":"000"}},{"name":"OLL 45","alg":"F R U R' U' F'","top":"001111001","sides":{"F":"010","R":"000","B":"010","L":"101"}},{"name":"OLL 46","alg":"R' U' R' F R F' U R","top":"110010110","sides":{"F":"000","R":"111","B":"000","L":"010"}},{"name":"OLL 47","alg":"R' U' R' F R F' R' F R F' U R","top":"010011000","sides":{"F":"110","R":"101","B":"001","L":"010"}},{"name":"OLL 48","alg":"F R U R' U' R U R' U' F'","top":"010110000","sides":{"F":"011","R":"010","B":"100","L":"101"}},{"name":"OLL 49","alg":"r U' r2 U r2 U r2 U' r","top":"010011000","sides":{"F":"011","R":"000","B":"100","L":"111"}},{"name":"OLL 50","alg":"r' U r2 U' r2 U' r2 U r'","top":"000011010","sides":{"F":"001","R":"000","B":"110","L":"111"}},{"name":"OLL 51","alg":"F U R U' R' U R U' R' F'","top":"000111000","sides":{"F":"110","R":"101","B":"011","L":"000"}},{"name":"OLL 52","alg":"R U R' U R U' B U' B' R'","top":"010010010","sides":{"F":"100","R":"111","B":"001","L":"010"}},{"name":"OLL 53","alg":"l' U2 L U L' U' L U L' U l","top":"010011000","sides":{"F":"111","R":"000","B":"101","L":"010"}},{"name":"OLL 54","alg":"r U2 R' U' R U R' U' R U' r'","top":"010110000","sides":{"F":"111","R":"010","B":"101","L":"000"}},{"name":"OLL 55","alg":"R' F R U R U' R2 F' R2 U' R' U R U R'","top":"000111000","sides":{"F":"111","R":"000","B":"111","L":"000"}},{"name":"OLL 56","alg":"r' U' r U' R' U R U' R' U R r' U r","top":"000111000","sides":{"F":"010","R":"101","B":"010","L":"101"}},{"name":"OLL 57","alg":"R U R' U' M' U R U' r'","top":"101111101","sides":{"F":"010","R":"000","B":"010","L":"000"}}],"F2L":[{"name":"F2L 1","alg":"U R U' R'","group":2,"white":"白朝前","iso":"----UF--F--DFF-FF-RR--RR-RR"},{"name":"F2L 2","alg":"U' F' U F","group":2,"white":"白朝右","iso":"----U--RR-FFFF-FF-D---RR-RR"},{"name":"F2L 3","alg":"F' U' F","group":1,"white":"白朝前","iso":"---RU---F--DFF-FF-R---RR-RR"},{"name":"F2L 4","alg":"R U R'","group":1,"white":"白朝右","iso":"-F--U---R--FFF-FF-D---RR-RR"},{"name":"F2L 5","alg":"U' R U R' U2 R U' R'","group":1,"white":"白朝前","iso":"-F--U---F--DFF-FF-R---RR-RR"},{"name":"F2L 6","alg":"U F' U' F U2 F' U F","group":1,"white":"白朝右","iso":"---RU---R--FFF-FF-D---RR-RR"},{"name":"F2L 7","alg":"U' R U2 R' U2 R U' R'","group":1,"white":"白朝前","iso":"---FU---F--DFF-FF-R---RR-RR"},{"name":"F2L 8","alg":"U F' U2 F U2 F' U F","group":1,"white":"白朝右","iso":"-R--U---R--FFF-FF-D---RR-RR"},{"name":"F2L 9","alg":"U' R U' R' U F' U' F","group":1,"white":"白朝前","iso":"-R--U---F--DFF-FF-R---RR-RR"},{"name":"F2L 10","alg":"U' R U R' U R U R'","group":1,"white":"白朝右","iso":"---FU---R--FFF-FF-D---RR-RR"},{"name":"F2L 11","alg":"U' R U2 R' U F' U' F","group":2,"white":"白朝前","iso":"----UR--F--DFF-FF-RF--RR-RR"},{"name":"F2L 12","alg":"R U' R' U R U' R' U2 R U' R'","group":2,"white":"白朝右","iso":"----U--FR-RFFF-FF-D---RR-RR"},{"name":"F2L 13","alg":"U F' U F U' F' U' F","group":2,"white":"白朝前","iso":"----U--RF-FDFF-FF-R---RR-RR"},{"name":"F2L 14","alg":"U' R U' R' U R U R'","group":2,"white":"白朝右","iso":"----UF--R--FFF-FF-DR--RR-RR"},{"name":"F2L 15","alg":"F' U F U2 R U R'","group":2,"white":"白朝前","iso":"----U--FF-RDFF-FF-R---RR-RR"},{"name":"F2L 16","alg":"R U' R' U2 F' U' F","group":2,"white":"白朝右","iso":"----UR--R--FFF-FF-DF--RR-RR"},{"name":"F2L 17","alg":"R U2 R' U' R U R'","group":2,"white":"白朝上","iso":"----UF--D--RFF-FF-FR--RR-RR"},{"name":"F2L 18","alg":"F' U2 F U F' U' F","group":2,"white":"白朝上","iso":"----U--RD-FRFF-FF-F---RR-RR"},{"name":"F2L 19","alg":"U R U2 R' U R U' R'","group":1,"white":"白朝上","iso":"-F--U---D--RFF-FF-F---RR-RR"},{"name":"F2L 20","alg":"U' F' U2 F U' F' U F","group":1,"white":"白朝上","iso":"---RU---D--RFF-FF-F---RR-RR"},{"name":"F2L 21","alg":"U2 R U R' U R U' R'","group":1,"white":"白朝上","iso":"---FU---D--RFF-FF-F---RR-RR"},{"name":"F2L 22","alg":"U2 F' U' F U' F' U F","group":1,"white":"白朝上","iso":"-R--U---D--RFF-FF-F---RR-RR"},{"name":"F2L 23","alg":"U R U' R' U' R U' R' U R U' R'","group":2,"white":"白朝上","iso":"----U--FD-RRFF-FF-F---RR-RR"},{"name":"F2L 24","alg":"U' F' U F U F' U F U' F' U F","group":2,"white":"白朝上","iso":"----UR--D--RFF-FF-FF--RR-RR"},{"name":"F2L 25","alg":"U' R' F R F' R U R'","group":3,"white":"白朝下","iso":"----UF------FF-FFF-R--RRRRR"},{"name":"F2L 26","alg":"U R U' R' F R' F' R","group":3,"white":"白朝下","iso":"----U--R--F-FF-FFF----RRRRR"},{"name":"F2L 27","alg":"R U' R' U R U' R'","group":3,"white":"白朝前","iso":"----UF------FF-FFD-R--RRFRR"},{"name":"F2L 28","alg":"F' U F U' F' U F","group":3,"white":"白朝右","iso":"----U--R--F-FF-FFR----RRDRR"},{"name":"F2L 29","alg":"R U' R' F' U' F","group":3,"white":"白朝前","iso":"-R--U-------FF-FFD----RRFRR"},{"name":"F2L 30","alg":"R U R' U' R U R'","group":3,"white":"白朝右","iso":"----UF------FF-FFR-R--RRDRR"},{"name":"F2L 31","alg":"U' R' F R F' R U' R'","group":0,"white":"白朝上","iso":"----U---D--RFFRFF-F--FRR-RR"},{"name":"F2L 32","alg":"U R U' R' U R U' R' U R U' R'","group":0,"white":"白朝上","iso":"----U---D--RFFFFF-F--RRR-RR"},{"name":"F2L 33","alg":"U' R U' R' U2 R U' R'","group":0,"white":"白朝前","iso":"----U---F--DFFFFF-R--RRR-RR"},{"name":"F2L 34","alg":"U R U R' U2 R U R'","group":0,"white":"白朝右","iso":"----U---R--FFFFFF-D--RRR-RR"},{"name":"F2L 35","alg":"U' R U R' U F' U' F","group":0,"white":"白朝前","iso":"----U---F--DFFRFF-R--FRR-RR"},{"name":"F2L 36","alg":"U F' U' F U' R U R'","group":0,"white":"白朝右","iso":"----U---R--FFFRFF-D--FRR-RR"},{"name":"F2L 37","alg":"R2 U2 F R2 F' U2 R' U R'","group":3,"white":"白朝下","iso":"----U-------FFRFFF---FRRRRR"},{"name":"F2L 38","alg":"R U' R' U' R U R' U2 R U' R'","group":3,"white":"白朝前","iso":"----U-------FFFFFD---RRRFRR"},{"name":"F2L 39","alg":"R U' R' U R U2 R' U R U' R'","group":3,"white":"白朝右","iso":"----U-------FFFFFR---RRRDRR"},{"name":"F2L 40","alg":"F' U' F U F' U F U2 R U R'","group":3,"white":"白朝前","iso":"----U-------FFRFFD---FRRFRR"},{"name":"F2L 41","alg":"R U' R' F' L' U2 L F","group":3,"white":"白朝右","iso":"----U-------FFRFFR---FRRDRR"}]};
+const DIAGRAM_COLORS = { U: '#ffd500', D: '#ffffff', F: '#009e60', B: '#0051ba', R: '#ff5800', L: '#c41e3a', '-': 'var(--gray)' };
+const F2L_GROUPS = [
+  '白色在上層 · Case 1　同伴在第二層',
+  '白色在上層 · Case 2　同伴在上層（不相鄰）',
+  '白色在上層 · Case 3　同伴在上層（相鄰）',
+  '白色方塊在底層（同伴在上層或第二層相鄰）',
+];
+
+// 頂視圖：9 格頂面 + 4 條側邊（各面外側正視由左至右）；colorOf 回傳 null 表示不畫
+function topViewSVG(top, sides, colorOf, arrows = []) {
+  const c = 10, g = 1, o = 4, base = o + g, edge = base + 3 * (c + g), size = edge + o;
+  const rects = [];
+  const cell = (x, y, w, h, ch) => {
+    const fill = colorOf(ch);
+    if (fill) rects.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1" fill="${fill}" stroke="#222" stroke-width=".4"/>`);
+  };
+  [...top].forEach((ch, i) => cell(base + (i % 3) * (c + g), base + Math.floor(i / 3) * (c + g), c, c, ch));
+  [...sides.F].forEach((ch, i) => cell(base + i * (c + g), edge, c, o, ch));
+  [...sides.R].forEach((ch, i) => cell(edge, base + (2 - i) * (c + g), o, c, ch));
+  [...sides.B].forEach((ch, i) => cell(base + (2 - i) * (c + g), 0, c, o, ch));
+  [...sides.L].forEach((ch, i) => cell(0, base + i * (c + g), o, c, ch));
+  const center = (i) => [base + (i % 3) * (c + g) + c / 2, base + Math.floor(i / 3) * (c + g) + c / 2];
+  const lines = arrows.map(([from, to, both]) => {
+    const [x1, y1] = center(from), [x2, y2] = center(to);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1"
+      marker-end="url(#ah)"${both ? ' marker-start="url(#ah)"' : ''}/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${size} ${size}"><defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3"
+    markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0L6,3L0,6z" fill="#111"/></marker></defs>
+    ${rects.join('')}${lines}</svg>`;
+}
+
+// 等角視圖：頂面、前面、右面各 9 格（F2L 用；只上色前兩層與目標角塊／棱塊）
+function isoSVG(stickers) {
+  const P = (x, y, z) => `${((x - z) * 0.866).toFixed(3)},${((x + z) * 0.5 - y).toFixed(3)}`;
+  const s = 0.46, quads = [];
+  for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++)
+    quads.push([P(x - s, 1.5, z - s), P(x + s, 1.5, z - s), P(x + s, 1.5, z + s), P(x - s, 1.5, z + s)]);
+  for (let y = 1; y >= -1; y--) for (let x = -1; x <= 1; x++)
+    quads.push([P(x - s, y + s, 1.5), P(x + s, y + s, 1.5), P(x + s, y - s, 1.5), P(x - s, y - s, 1.5)]);
+  for (let y = 1; y >= -1; y--) for (let z = 1; z >= -1; z--)
+    quads.push([P(1.5, y + s, z + s), P(1.5, y + s, z - s), P(1.5, y - s, z - s), P(1.5, y - s, z + s)]);
+  const body = [P(-1.5, 1.5, -1.5), P(1.5, 1.5, -1.5), P(1.5, -1.5, -1.5), P(1.5, -1.5, 1.5), P(-1.5, -1.5, 1.5), P(-1.5, 1.5, 1.5)];
+  return `<svg viewBox="-2.75 -3.15 5.5 6.3"><polygon points="${body.join(' ')}" fill="#222"/>
+    ${quads.map((q, i) => `<polygon points="${q.join(' ')}" fill="${DIAGRAM_COLORS[stickers[i]]}"/>`).join('')}</svg>`;
+}
+
+const thumbOf = {
+  PLL: (c) => topViewSVG('UUUUUUUUU', c.sides, (ch) => DIAGRAM_COLORS[ch], c.arrows),
+  // OLL：頂面非黃格畫灰色，側邊只畫黃色貼紙（同常見公式表）
+  OLL: (c) => topViewSVG(c.top.replace(/0/g, '-'), c.sides,
+    (ch) => (ch === '1' ? DIAGRAM_COLORS.U : ch === '-' ? DIAGRAM_COLORS['-'] : null)),
+  F2L: (c) => isoSVG(c.iso),
+};
+
+const picker = document.getElementById('cases');
+let activeCard = null;
+
+function cardHTML(group, c, i) {
+  return `<button class="case" data-group="${group}" data-i="${i}" title="${c.alg}">
+    ${thumbOf[group](c)}<span>${c.name}</span>${c.white ? `<small>${c.white}</small>` : ''}</button>`;
+}
+
+function showGroup(group) {
+  document.querySelectorAll('.picker-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.g === group));
+  const list = CASES[group].map((c, i) => [c, i]);
+  if (group !== 'F2L') {
+    picker.innerHTML = `<div class="grid">${list.map(([c, i]) => cardHTML(group, c, i)).join('')}</div>`;
+  } else {
+    const order = { '白朝上': 0, '白朝前': 1, '白朝右': 2, '白朝下': 3 };
+    picker.innerHTML = F2L_GROUPS.map((title, gi) => `<h3>${title}</h3><div class="grid">${list
+      .filter(([c]) => c.group === gi)
+      .sort(([a], [b]) => order[a.white] - order[b.white])
+      .map(([c, i]) => cardHTML(group, c, i)).join('')}</div>`).join('') +
+      `<h3>白色方塊在底層（同伴在第二層不相鄰）</h3>
+       <p class="muted">同伴卡在另一個槽，不屬於標準 41 種。先把同伴所在的槽「拿出來再放回去」
+       （例如同伴在左前槽時做 L' U' L），讓同伴回到上層，就會變成上面「白色方塊在底層」的情況。</p>`;
+  }
+  markActive();
+}
+
+function markActive() {
+  picker.querySelectorAll('.case').forEach((b) =>
+    b.classList.toggle('on', !!activeCard && b.dataset.group === activeCard[0] && +b.dataset.i === activeCard[1]));
+}
+
+document.querySelector('.picker-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) showGroup(b.dataset.g);
+});
+picker.addEventListener('click', (e) => {
+  const b = e.target.closest('.case');
+  if (!b) return;
+  activeCard = [b.dataset.group, +b.dataset.i];
+  ui.alg.value = CASES[activeCard[0]][activeCard[1]].alg;
+  loadFromInput();
+  markActive();
+  // 窄螢幕（上下排列）才需要捲回方塊；寬螢幕兩欄並排不捲動
+  if (!matchMedia('(min-width: 760px)').matches) {
+    document.getElementById('viewport').scrollIntoView({ behavior: 'smooth' });
+  }
+});
+activeCard = ['PLL', CASES.PLL.findIndex((c) => c.name === 'T-Perm')];
+
+const $ = (id) => document.getElementById(id);
+const ui = {
+  alg: $('alg'), load: $('load'), caseMode: $('caseMode'), yellowTop: $('yellowTop'),
+  moves: $('moves'), scrub: $('scrub'), play: $('play'), prev: $('prev'), next: $('next'),
+  reset: $('reset'), speed: $('speed'), counter: $('counter'), error: $('error'),
+};
+
+function loadFromInput() {
+  try {
+    const moves = parseAlg(ui.alg.value);
+    const setup = [
+      ...(ui.yellowTop.checked ? parseAlg('z2') : []),
+      ...(ui.caseMode.checked ? invertAlg(moves) : []),
+    ];
+    player.load(moves, setup);
+    ui.error.textContent = '';
+    ui.scrub.max = moves.length;
+    ui.moves.innerHTML = '';
+    moves.forEach((m, idx) => {
+      const chip = document.createElement('span');
+      chip.textContent = m.notation;
+      chip.onclick = () => player.seek(idx + 1);   // 點擊某步 → 跳到該步完成
+      ui.moves.appendChild(chip);
+    });
+    updateUI();
+  } catch (e) {
+    if (!(e instanceof AlgParseError)) throw e;
+    ui.error.textContent = e.message;
+  }
+}
+
+function updateUI() {
+  const p = player.position;
+  const k = Math.floor(p);
+  ui.scrub.value = p;
+  ui.play.textContent = player.playing ? '❚❚ 暫停' : '▶ 播放';
+  ui.counter.textContent = `第 ${Math.min(Math.ceil(p - 1e-6), player.length)} / ${player.length} 步`;
+  [...ui.moves.children].forEach((chip, idx) => {
+    chip.classList.toggle('done', idx < k);
+    chip.classList.toggle('active', idx === k && p - k > 0);
+  });
+}
+
+player.addEventListener('change', updateUI);
+ui.load.onclick = loadFromInput;
+ui.alg.onkeydown = (e) => { if (e.key === 'Enter') loadFromInput(); };
+ui.alg.oninput = () => { activeCard = null; markActive(); };
+ui.caseMode.onchange = ui.yellowTop.onchange = loadFromInput;
+ui.play.onclick = () => player.toggle();
+ui.prev.onclick = () => player.stepBack();
+ui.next.onclick = () => player.stepForward();
+ui.reset.onclick = () => player.seek(0);
+ui.speed.onchange = () => { player.speed = Number(ui.speed.value); };
+ui.scrub.oninput = () => player.seek(Number(ui.scrub.value));
+document.addEventListener('keydown', (e) => {
+  if (e.target === ui.alg) return;
+  if (e.code === 'Space') { e.preventDefault(); player.toggle(); }
+  if (e.code === 'ArrowRight') player.stepForward();
+  if (e.code === 'ArrowLeft') player.stepBack();
+});
+
+let last = performance.now();
+renderer.setAnimationLoop((now) => {
+  player.update(now - last);
+  last = now;
+  orbit.update();
+  renderer.render(scene, camera);
+});
+
+loadFromInput();
+showGroup(location.hash.slice(1) in CASES ? location.hash.slice(1) : 'PLL');
+</script>
+</body>
+</html>

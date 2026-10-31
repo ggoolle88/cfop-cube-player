@@ -1,0 +1,116 @@
+[
+  {
+    "id": "pll-t",
+    "category": "PLL",
+    "subgroup": "Adjacent corner swap",
+    "caseNumber": null,
+    "name": { "en": "T-Perm", "zh": "T 型交換" },
+    "aliases": ["T"],
+    "probability": "1/18",
+    "difficulty": 1,
+    "algorithms": [
+      {
+        "id": "main",
+        "alg": "R U R' U' R' F R2 U' R' U' R U R' F'",
+        "isPrimary": true,
+        "moveCount": { "htm": 14, "qtm": 15, "stm": 14 },
+        "steps": [
+          { "moves": "R U R' U'", "label": "Sexy Move", "note": "最常見的觸發，先練到不用想" },
+          { "moves": "R' F", "note": "R' 之後右手順勢準備 F" },
+          { "moves": "R2 U' R' U'", "note": "R2 後立即接 U'，保持節奏" },
+          { "moves": "R U R' F'", "note": "收尾，F' 完成後頂層已還原" }
+        ],
+        "fingertricks": [
+          { "moveIndex": 1, "text": "U：右手食指從後往左撥" },
+          { "moveIndex": 3, "text": "U'：左手食指撥" },
+          { "moveIndex": 6, "text": "R2：右手手腕連續兩次，或雙手食指配合" }
+        ]
+      }
+    ],
+    "stats": { "averageMoveCount": 14 },
+    "diagram": {
+      "type": "LL",
+      "colorMode": "permutation",
+      "top": "UUUUUUUUU",
+      "sides": { "F": "FFR", "R": "BLF", "B": "RBB", "L": "LRL" },
+      "arrows": [
+        { "from": 3, "to": 5, "bidirectional": true },
+        { "from": 2, "to": 8, "bidirectional": true }
+      ]
+    },
+    "recognition": {
+      "summary": "一側有「車燈」且中間棱塊是對面色，正前與正後各有一條 2 格色帶",
+      "features": ["左側：車燈＋對面色棱塊", "右側：四種不同顏色", "前、後：各一條 2 格色帶"],
+      "holdHint": "車燈放在左手邊"
+    },
+    "applicability": "OLL 完成（頂面全黃）後，頂層出現相鄰角交換＋左右棱交換時使用",
+    "tags": ["2-look PLL", "beginner-friendly"]
+  },
+  {
+    "id": "oll-27",
+    "category": "OLL",
+    "subgroup": "Cross (Sune)",
+    "caseNumber": 27,
+    "name": { "en": "Sune", "zh": "小魚 1" },
+    "aliases": ["Sune"],
+    "probability": "1/54",
+    "difficulty": 1,
+    "algorithms": [
+      {
+        "id": "main",
+        "alg": "R U R' U R U2 R'",
+        "isPrimary": true,
+        "moveCount": { "htm": 7, "qtm": 8, "stm": 7 },
+        "steps": [
+          { "moves": "R U R'", "note": "把角塊帶上來" },
+          { "moves": "U R U2 R'", "note": "U2 用右手食指連撥兩下" }
+        ],
+        "fingertricks": [
+          { "moveIndex": 5, "text": "U2：右手食指＋中指連撥" }
+        ]
+      }
+    ],
+    "stats": { "averageMoveCount": 7 },
+    "diagram": {
+      "type": "LL",
+      "colorMode": "orientation",
+      "top": "-U-UUUUU-",
+      "sides": { "F": "--U", "R": "--U", "B": "--U", "L": "---" }
+    },
+    "recognition": {
+      "summary": "頂面十字已完成，只有一個角塊黃色朝上（小魚形狀）",
+      "features": ["左前角黃色朝上", "右前角黃色朝前"],
+      "holdHint": "黃色朝上的角放在左前方，魚頭朝左下"
+    },
+    "applicability": "F2L 完成、頂層已有黃十字且恰好一角朝上時",
+    "tags": ["2-look OLL", "beginner-friendly"]
+  },
+  {
+    "id": "f2l-01",
+    "category": "F2L",
+    "subgroup": "Basic inserts",
+    "caseNumber": 1,
+    "name": { "en": "F2L 1", "zh": "基本插入 1" },
+    "difficulty": 1,
+    "algorithms": [
+      {
+        "id": "main",
+        "alg": "U R U' R'",
+        "isPrimary": true,
+        "moveCount": { "htm": 4, "qtm": 4, "stm": 4 },
+        "steps": [
+          { "moves": "U", "note": "把角塊移開，讓 R 能帶起棱塊" },
+          { "moves": "R U' R'", "note": "配對後直接插入右前槽" }
+        ]
+      }
+    ],
+    "stats": { "averageMoveCount": 4 },
+    "diagram": { "type": "twisty", "stickering": "F2L" },
+    "recognition": {
+      "summary": "角塊在右前上方白色朝前，棱塊在右側頂層，兩者頂面顏色相同",
+      "holdHint": "目標槽位放在右前方"
+    },
+    "applicability": "十字完成後，角與棱都在頂層且已呈現可直接插入的關係",
+    "tags": ["intuitive"]
+  }
+]

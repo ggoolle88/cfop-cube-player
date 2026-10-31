@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/cube-app/cfop-case.schema.json",
+  "title": "CFOP Case",
+  "description": "一個 CFOP 案例（F2L / OLL / PLL）及其公式、圖示、辨識與適用說明",
+  "type": "object",
+  "required": ["id", "category", "name", "algorithms", "diagram", "recognition"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^(f2l|oll|pll)-[a-z0-9-]+$", "examples": ["pll-t", "oll-27", "f2l-01"] },
+    "category": { "enum": ["F2L", "OLL", "PLL"] },
+    "subgroup": { "type": "string", "description": "子分類，例如 OLL 的 Sune 群組、PLL 的 Adjacent corner swap" },
+    "caseNumber": { "type": ["integer", "null"], "description": "F2L 1–41 / OLL 1–57；PLL 以名稱為主可為 null" },
+    "name": {
+      "type": "object",
+      "required": ["en"],
+      "properties": { "en": { "type": "string" }, "zh": { "type": "string" } }
+    },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "probability": { "type": "string", "pattern": "^\\d+/\\d+$", "description": "出現機率，例如 1/18" },
+    "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+
+    "algorithms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/algorithm" },
+      "description": "第一個 isPrimary=true 的為預設公式，其餘為替代公式"
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "averageMoveCount": { "type": "number", "description": "所有替代公式的平均 HTM 步數（建置時計算）" }
+      }
+    },
+
+    "diagram": { "$ref": "#/$defs/diagram" },
+
+    "recognition": {
+      "type": "object",
+      "required": ["summary"],
+      "properties": {
+        "summary": { "type": "string", "description": "觸發特徵文字說明（一句話）" },
+        "features": { "type": "array", "items": { "type": "string" }, "description": "條列特徵，例如「左側有車燈」" },
+        "holdHint": { "type": "string", "description": "握法：案例應如何擺放再開始做公式" }
+      }
+    },
+    "applicability": {
+      "type": "string",
+      "description": "適用情況：在什麼前提下使用此公式（例如 OLL 完成後、角塊在頂層且白色朝前）"
+    },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  },
+
+  "$defs": {
+    "algorithm": {
+      "type": "object",
+      "required": ["alg", "moveCount"],
+      "properties": {
+        "id": { "type": "string" },
+        "alg": { "type": "string", "description": "標準記號字串，可含括號與 // 註解", "examples": ["R U R' U' R' F R2 U' R' U' R U R' F'"] },
+        "isPrimary": { "type": "boolean", "default": false },
+        "moveCount": {
+          "type": "object",
+          "required": ["htm"],
+          "properties": {
+            "htm": { "type": "integer", "description": "Half Turn Metric（R2 算 1 步）" },
+            "qtm": { "type": "integer", "description": "Quarter Turn Metric（R2 算 2 步）" },
+            "stm": { "type": "integer", "description": "Slice Turn Metric（M 算 1 步）" }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "description": "詳情頁的「步驟說明」：把公式切成可記憶的片段；所有 moves 串接後必須等於 alg",
+          "items": {
+            "type": "object",
+            "required": ["moves"],
+            "properties": {
+              "moves": { "type": "string" },
+              "label": { "type": "string", "description": "例如 Sexy Move、Sledgehammer" },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "fingertricks": {
+          "type": "array",
+          "description": "指法筆記：moveIndex 對應 alg 解析後第幾步（從 0 開始）",
+          "items": {
+            "type": "object",
+            "required": ["moveIndex", "text"],
+            "properties": {
+              "moveIndex": { "type": "integer", "minimum": 0 },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "source": { "type": "string" }
+      }
+    },
+
+    "diagram": {
+      "description": "頂面展開圖。LL：以 9 格頂面 + 4 條側邊描述，由 App 自行畫成 SVG；twisty：交給 cubing.js 依 stickering 顯示（適合 F2L）",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "colorMode", "top", "sides"],
+          "properties": {
+            "type": { "const": "LL" },
+            "colorMode": {
+              "enum": ["orientation", "permutation"],
+              "description": "orientation：只畫頂色（U）與灰色（-），用於 OLL；permutation：完整顏色，用於 PLL"
+            },
+            "top": {
+              "type": "string",
+              "pattern": "^[UDFBLR-]{9}$",
+              "description": "頂面 9 格，從後左 (UBL) 開始逐列到前右 (UFR)；字母為「該貼紙在還原狀態所屬的面」而非顏色，配色由主題決定"
+            },
+            "sides": {
+              "type": "object",
+              "required": ["F", "R", "B", "L"],
+              "description": "各側面最上排 3 格，從該面外側正視由左至右",
+              "properties": {
+                "F": { "type": "string", "pattern": "^[UDFBLR-]{3}$" },
+                "R": { "type": "string", "pattern": "^[UDFBLR-]{3}$" },
+                "B": { "type": "string", "pattern": "^[UDFBLR-]{3}$" },
+                "L": { "type": "string", "pattern": "^[UDFBLR-]{3}$" }
+              }
+            },
+            "arrows": {
+              "type": "array",
+              "description": "PLL 箭頭，以頂面格子索引 0–8 表示",
+              "items": {
+                "type": "object",
+                "required": ["from", "to"],
+                "properties": {
+                  "from": { "type": "integer", "minimum": 0, "maximum": 8 },
+                  "to": { "type": "integer", "minimum": 0, "maximum": 8 },
+                  "bidirectional": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "stickering"],
+          "properties": {
+            "type": { "const": "twisty" },
+            "stickering": { "enum": ["full", "F2L", "OLL", "PLL", "LL", "Cross"], "description": "對應 twisty-player 的 experimental-stickering" },
+            "cameraLatitude": { "type": "number" },
+            "cameraLongitude": { "type": "number" }
+          }
+        }
+      ]
+    }
+  }
+}

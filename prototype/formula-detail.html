@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Formula Detail</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --text:#1d2129; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --chip:#eef0f3; --gray:#9ca3af; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111318; --panel:#1b1e25; --text:#e6e8ec; --muted:#9aa1ad; --line:#2b2f38; --accent:#60a5fa; --chip:#272b34; --gray:#4b5563; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, -apple-system, "Noto Sans TC", sans-serif; }
+  .page { max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+
+  /* ---- 頂部導覽 ---- */
+  header { position:sticky; top:0; z-index:2; background:var(--bg); display:flex; align-items:center; gap:12px; padding:12px 16px; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  .badge { font-size:12px; padding:2px 8px; border-radius:99px; background:var(--chip); color:var(--muted); }
+
+  /* ---- 3D 動畫控制區（上半部） ---- */
+  .stage { position:relative; background:var(--panel); margin:0 16px; border-radius:16px; overflow:hidden; }
+  twisty-player { width:100%; height:300px; }
+  .thumb { position:absolute; top:10px; left:10px; width:76px; height:76px; background:var(--panel); border-radius:10px; padding:4px; box-shadow:0 1px 4px #0002; }
+  .view-toggle { position:absolute; top:10px; right:10px; display:flex; background:var(--chip); border-radius:8px; padding:2px; }
+  .view-toggle button { border:0; background:none; color:var(--text); padding:4px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
+  .view-toggle button.on { background:var(--panel); }
+  .controls { padding:8px 16px 14px; display:flex; flex-direction:column; gap:8px; }
+  twisty-alg-viewer { font:16px/1.6 ui-monospace, monospace; text-align:center; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .btns { display:flex; justify-content:center; gap:10px; align-items:center; }
+  .btns button { border:0; background:var(--chip); color:var(--text); border-radius:10px; padding:8px 14px; font-size:16px; cursor:pointer; }
+  .btns button.primary { background:var(--accent); color:#fff; padding:8px 22px; }
+  .seg { display:flex; background:var(--chip); border-radius:8px; padding:2px; }
+  .seg button { flex:1; border:0; background:none; color:var(--text); padding:5px 10px; border-radius:6px; font-size:13px; cursor:pointer; }
+  .seg button.on { background:var(--panel); box-shadow:0 1px 2px #0002; }
+
+  /* ---- 下半部：說明 ---- */
+  .tabs { display:flex; gap:4px; padding:16px 16px 0; border-bottom:1px solid var(--line); }
+  .tabs button { border:0; background:none; color:var(--muted); padding:8px 10px; font-size:15px; border-bottom:2px solid transparent; cursor:pointer; }
+  .tabs button.on { color:var(--text); border-color:var(--accent); }
+  .tab { padding:12px 16px; display:none; }
+  .tab.on { display:block; }
+  .step { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .step code { font:15px ui-monospace, monospace; white-space:nowrap; }
+  .step .n { width:22px; height:22px; border-radius:50%; background:var(--chip); font-size:12px; display:grid; place-items:center; flex:none; }
+  .muted { color:var(--muted); font-size:13px; }
+  ul { padding-left:20px; margin:6px 0; }
+
+  /* ---- 練習區（固定於底部） ---- */
+  .practice { margin-top:auto; background:var(--panel); border-top:1px solid var(--line); padding:12px 16px calc(12px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; position:sticky; bottom:0; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .switch { position:relative; width:44px; height:26px; flex:none; }
+  .switch input { opacity:0; width:0; height:0; }
+  .switch span { position:absolute; inset:0; background:var(--gray); border-radius:99px; transition:.2s; }
+  .switch span::after { content:""; position:absolute; width:20px; height:20px; left:3px; top:3px; border-radius:50%; background:#fff; transition:.2s; }
+  .switch input:checked + span { background:var(--accent); }
+  .switch input:checked + span::after { transform:translateX(18px); }
+  .cta { border:0; background:var(--accent); color:#fff; border-radius:12px; padding:12px; font-size:16px; cursor:pointer; }
+</style>
+<!-- 官方 CDN；正式 App 內請改用 npm 套件 `cubing` 打包，避免執行期依賴網路 -->
+<script type="module" src="https://cdn.cubing.net/v0/js/cubing/twisty"></script>
+</head>
+<body>
+<div class="page">
+  <header>
+    <button class="badge" style="border:0;font-size:18px;background:none;color:var(--text)">‹</button>
+    <h1 id="title"></h1>
+    <span class="badge" id="meta"></span>
+  </header>
+
+  <!-- ① 3D 互動動畫控制區 -->
+  <section class="stage">
+    <twisty-player id="player" puzzle="3x3x3" control-panel="none" background="none"
+      hint-facelets="none" back-view="none" experimental-setup-anchor="end"></twisty-player>
+    <div class="thumb" id="thumb" title="頂面展開圖（由 JSON diagram 繪製）"></div>
+    <div class="view-toggle">
+      <button data-vis="3D" class="on">3D</button>
+      <button data-vis="2D">2D</button>
+    </div>
+    <div class="controls">
+      <twisty-alg-viewer for="player"></twisty-alg-viewer>
+      <input type="range" id="scrub" min="0" max="1" step="1" value="0">
+      <div class="btns">
+        <button id="start" title="回到案例">⏮</button>
+        <button id="back" title="上一步">◀</button>
+        <button id="play" class="primary">▶</button>
+        <button id="fwd" title="下一步">▶</button>
+        <button id="end" title="跳到結尾">⏭</button>
+      </div>
+      <div class="seg" id="speed">
+        <button data-v="0.5">0.5×</button><button data-v="1" class="on">1×</button>
+        <button data-v="2">2×</button><button data-v="4">4×</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 說明分頁 -->
+  <nav class="tabs">
+    <button data-tab="steps" class="on">步驟說明</button>
+    <button data-tab="recog">辨識特徵</button>
+    <button data-tab="finger">指法筆記</button>
+    <button data-tab="alts">替代公式</button>
+  </nav>
+  <section class="tab on" id="tab-steps"></section>
+  <section class="tab" id="tab-recog"></section>
+  <section class="tab" id="tab-finger"></section>
+  <section class="tab" id="tab-alts"></section>
+
+  <!-- ③ 練習開關 -->
+  <section class="practice">
+    <div class="row"><span>加入每日練習</span><label class="switch"><input type="checkbox" id="inDrill"><span></span></label></div>
+    <div class="row">
+      <span>學習狀態</span>
+      <div class="seg" id="status" style="width:220px">
+        <button data-v="new">未學</button><button data-v="learning">學習中</button><button data-v="mastered">已掌握</button>
+      </div>
+    </div>
+    <button class="cta" id="quiz">開始辨識測驗</button>
+  </section>
+</div>
+
+<!-- 正式 App 中這份資料來自 data/algorithms/*.json；此處內嵌一筆以便直接開啟檔案 -->
+<script type="application/json" id="case-data">
+{
+  "id": "pll-t", "category": "PLL", "name": { "en": "T-Perm", "zh": "T 型交換" }, "probability": "1/18",
+  "algorithms": [
+    { "id": "main", "alg": "R U R' U' R' F R2 U' R' U' R U R' F'", "isPrimary": true,
+      "moveCount": { "htm": 14, "qtm": 15, "stm": 14 },
+      "steps": [
+        { "moves": "R U R' U'", "label": "Sexy Move", "note": "最常見的觸發，先練到不用想" },
+        { "moves": "R' F", "note": "R' 之後右手順勢準備 F" },
+        { "moves": "R2 U' R' U'", "note": "R2 後立即接 U'，保持節奏" },
+        { "moves": "R U R' F'", "note": "收尾，F' 完成後頂層已還原" }
+      ],
+      "fingertricks": [
+        { "moveIndex": 1, "text": "U：右手食指從後往左撥" },
+        { "moveIndex": 3, "text": "U'：左手食指撥" },
+        { "moveIndex": 6, "text": "R2：右手手腕連續兩次，或雙手食指配合" }
+      ] }
+  ],
+  "stats": { "averageMoveCount": 14 },
+  "diagram": { "type": "LL", "colorMode": "permutation", "top": "UUUUUUUUU",
+    "sides": { "F": "FFR", "R": "BLF", "B": "RBB", "L": "LRL" },
+    "arrows": [ { "from": 3, "to": 5, "bidirectional": true }, { "from": 2, "to": 8, "bidirectional": true } ] },
+  "recognition": { "summary": "一側有「車燈」且中間棱塊是對面色，正前與正後各有一條 2 格色帶",
+    "features": ["左側：車燈＋對面色棱塊", "右側：四種不同顏色", "前、後：各一條 2 格色帶"], "holdHint": "車燈放在左手邊" },
+  "applicability": "OLL 完成（頂面全黃）後，頂層出現相鄰角交換＋左右棱交換時使用"
+}
+</script>
+
+<script type="module">
+const data = JSON.parse(document.getElementById('case-data').textContent);
+const primary = data.algorithms.find((a) => a.isPrimary) ?? data.algorithms[0];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- 頂面展開圖：JSON diagram → SVG ----------
+// 配色以「黃色朝上」的 CFOP 習慣為準；JSON 只存面代號，換配色只要改這張表
+const SCHEME = { U: '#ffd500', D: '#ffffff', F: '#009e60', B: '#0051ba', R: '#c41e3a', L: '#ff5800', '-': 'var(--gray)' };
+
+function diagramSVG(d) {
+  if (d.type !== 'LL') return '';
+  const fill = (ch) => (d.colorMode === 'orientation' && ch !== 'U' ? SCHEME['-'] : SCHEME[ch]);
+  const c = 10, g = 1, o = 4; // 格寬、間距、側條厚度
+  const rects = [];
+  const cell = (x, y, w, h, ch) =>
+    rects.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="${fill(ch)}"/>`);
+  const base = o + g;
+  [...d.top].forEach((ch, i) => cell(base + (i % 3) * (c + g), base + Math.floor(i / 3) * (c + g), c, c, ch));
+  const edge = base + 3 * (c + g);
+  // 側條：各面「外側正視由左至右」→ 換算成俯視座標
+  [...d.sides.F].forEach((ch, i) => cell(base + i * (c + g), edge, c, o, ch));
+  [...d.sides.R].forEach((ch, i) => cell(edge, base + (2 - i) * (c + g), o, c, ch));
+  [...d.sides.B].forEach((ch, i) => cell(base + (2 - i) * (c + g), 0, c, o, ch));
+  [...d.sides.L].forEach((ch, i) => cell(0, base + i * (c + g), o, c, ch));
+  const center = (i) => [base + (i % 3) * (c + g) + c / 2, base + Math.floor(i / 3) * (c + g) + c / 2];
+  const arrows = (d.arrows ?? []).map(({ from, to, bidirectional }) => {
+    const [x1, y1] = center(from), [x2, y2] = center(to);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.2"
+      marker-end="url(#ah)" ${bidirectional ? 'marker-start="url(#ah)"' : ''}/>`;
+  });
+  const size = edge + o;
+  return `<svg viewBox="0 0 ${size} ${size}" width="100%" height="100%">
+    <defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+      <path d="M0,0 L6,3 L0,6 z" fill="#111"/></marker></defs>
+    ${rects.join('')}${arrows.join('')}</svg>`;
+}
+
+// ---------- 標頭與 twisty-player ----------
+$('title').textContent = `${data.name.en}　${data.name.zh ?? ''}`;
+$('meta').textContent = `${data.category} · ${primary.moveCount.htm} 步 · 機率 ${data.probability ?? '-'}`;
+$('thumb').innerHTML = diagramSVG(data.diagram);
+
+const player = $('player');
+player.experimentalSetupAlg = 'z2';     // 黃色朝上、綠色朝前（CFOP 慣用握法）
+player.alg = primary.alg;
+player.experimentalStickering = data.category === 'F2L' ? 'F2L' : data.category; // OLL 只顯示頂色、PLL 顯示頂層
+
+// ---------- 播放控制 ----------
+await customElements.whenDefined('twisty-player');
+const model = player.experimentalModel;
+const scrub = $('scrub');
+
+model.detailedTimelineInfo.addFreshListener(({ timestamp, timeRange }) => {
+  scrub.max = timeRange.end;
+  scrub.value = timestamp;
+});
+model.playingInfo.addFreshListener(({ playing }) => { $('play').textContent = playing ? '❚❚' : '▶'; });
+scrub.addEventListener('input', () => { player.pause(); player.timestamp = Number(scrub.value); });
+
+$('play').onclick = () => player.togglePlay();
+$('start').onclick = () => player.jumpToStart();
+$('end').onclick = () => player.jumpToEnd();
+// cubing.js 以毫秒為時間軸；用 indexer 在「第 n 步」與時間之間換算
+async function jumpToMove(index) {
+  const indexer = await model.indexer.get();
+  const n = Math.max(0, Math.min(index, indexer.numAnimatedLeaves()));
+  player.pause();
+  player.timestamp = n === indexer.numAnimatedLeaves()
+    ? (await model.detailedTimelineInfo.get()).timeRange.end
+    : indexer.indexToMoveStartTimestamp(n);
+}
+async function currentMove() {
+  const [indexer, { timestamp }] = await Promise.all([model.indexer.get(), model.detailedTimelineInfo.get()]);
+  return indexer.timestampToIndex(timestamp);
+}
+$('back').onclick = async () => jumpToMove((await currentMove()) - 1);
+$('fwd').onclick = async () => jumpToMove((await currentMove()) + 1);
+
+const segment = (el, onPick) => el.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  [...el.children].forEach((x) => x.classList.toggle('on', x === b));
+  onPick(b.dataset.v);
+});
+segment($('speed'), (v) => { player.tempoScale = Number(v); });
+
+document.querySelector('.view-toggle').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.querySelectorAll('.view-toggle button').forEach((x) => x.classList.toggle('on', x === b));
+  // 2D：最後一層用頂視圖，F2L 用一般平面展開
+  player.visualization = b.dataset.vis === '3D' ? '3D' : (data.category === 'F2L' ? '2D' : 'experimental-2D-LL');
+});
+
+// ---------- 說明分頁 ----------
+let moveCursor = 0;
+$('tab-steps').innerHTML = primary.steps.map((s, i) => {
+  const start = moveCursor;
+  moveCursor += s.moves.trim().split(/\s+/).length;
+  return `<div class="step" data-end="${moveCursor}" data-start="${start}">
+    <span class="n">${i + 1}</span>
+    <div><code>${esc(s.moves)}</code>${s.label ? ` <span class="badge">${esc(s.label)}</span>` : ''}
+    <div class="muted">${esc(s.note ?? '')}</div></div></div>`;
+}).join('') + `<p class="muted">適用情況：${esc(data.applicability ?? '')}</p>`;
+
+// 點擊步驟片段 → 動畫只播放該片段（先跳到片段起點再播放）
+$('tab-steps').addEventListener('click', async (e) => {
+  const row = e.target.closest('.step');
+  if (!row) return;
+  await jumpToMove(Number(row.dataset.start));
+  player.play();
+});
+
+$('tab-recog').innerHTML = `<p>${esc(data.recognition.summary)}</p>
+  <ul>${(data.recognition.features ?? []).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+  <p class="muted">握法：${esc(data.recognition.holdHint ?? '-')}</p>`;
+
+const tokens = primary.alg.trim().split(/\s+/);
+$('tab-finger').innerHTML = (primary.fingertricks ?? []).map((f) =>
+  `<div class="step"><code>${esc(tokens[f.moveIndex] ?? '?')}</code><div>${esc(f.text)}</div></div>`
+).join('') || '<p class="muted">尚無指法筆記，可點右上角新增個人筆記。</p>';
+
+$('tab-alts').innerHTML = data.algorithms.map((a) =>
+  `<div class="step"><code>${esc(a.alg)}</code><span class="muted">${a.moveCount.htm} HTM</span></div>`
+).join('') + `<p class="muted">平均步數：${data.stats?.averageMoveCount ?? '-'}</p>`;
+
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.id === `tab-${b.dataset.tab}`));
+});
+
+// ---------- 練習開關：本機進度（正式 App 改存 SQLite / MMKV） ----------
+const KEY = `progress:${data.id}`;
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? {}; } catch { return {}; } };
+const save = (p) => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch {} };
+const progress = { inDrill: false, status: 'new', ...load() };
+$('inDrill').checked = progress.inDrill;
+$('inDrill').onchange = () => { progress.inDrill = $('inDrill').checked; save(progress); };
+[...$('status').children].forEach((b) => b.classList.toggle('on', b.dataset.v === progress.status));
+segment($('status'), (v) => { progress.status = v; save(progress); });
+$('quiz').onclick = () => alert('導向測驗頁：顯示隨機打亂的案例 → 使用者選出案例名稱 / 輸入公式');
+</script>
+</body>
+</html>
